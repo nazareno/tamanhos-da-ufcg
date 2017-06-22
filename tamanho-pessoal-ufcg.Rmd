@@ -16,31 +16,39 @@ library(DT)
 
 
 ```{r, echo=FALSE, warning=FALSE}
-cadastros = read_tsv("dados/20170430_Cadastro.csv")
+ufcg = read_csv("ufcg-201704-tudo.csv", 
+                col_types = cols(
+                    .default = col_character(),
+                    Id_SERVIDOR_PORTAL = col_integer(),
+                    PADRAO_CARGO = col_integer(),
+                    NIVEL_CARGO = col_integer(),
+                    COD_UORG_LOTACAO = col_double(),
+                    COD_ORG_LOTACAO = col_integer(),
+                    COD_ORGSUP_LOTACAO = col_integer(),
+                    COD_UORG_EXERCICIO = col_double(),
+                    COD_ORG_EXERCICIO = col_integer(),
+                    COD_ORGSUP_EXERCICIO = col_integer(),
+                    TIPO_VINCULO = col_integer()
+                )
+)
 
-ufcg = cadastros %>% 
-    filter(grepl("CAMPINA GRANDE", ORG_LOTACAO), grepl("UNIVERSIDADE", ORG_LOTACAO))
-write_csv(ufcg, "ufcg-201704-tudo.csv")
-
-ufcg_uas = ufcg %>% 
-    filter(grepl("UNIDADE ACA", UORG_EXERCICIO), 
-           DESCRICAO_CARGO != "", 
-           SITUACAO_VINCULO != "APOSENTADO", 
-           !is.na(UORG_LOTACAO)) %>% 
-    select(-Id_SERVIDOR_PORTAL, 
-           -(CLASSE_CARGO:COD_UORG_LOTACAO), 
-           -(COD_ORG_LOTACAO:COD_ORG_EXERCICIO), 
-           -(DATA_INICIO_AFASTAMENTO:REGIME_JURIDICO), 
-           -(DATA_NOMEACAO_CARGOFUNCAO:UF_EXERCICIO), 
-           -COD_ORGSUP_EXERCICIO, 
-           -ORGSUP_EXERCICIO, 
-           UORG_EXERCICIO, 
-           DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO) %>% 
-    mutate(UORG_LOTACAO = tools::toTitleCase(tolower(UORG_LOTACAO)), 
-           DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO = ifelse(grepl("informada", DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO), NA, DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO),
-           INGRESSO_SERVICOPUBLICO = dmy(DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO))
-
-write_csv(ufcg_uas, "ufcg-201704-unidades-academicas-filtradas.csv")
+ufcg_uas = read_csv("ufcg-201704-unidades-academicas-filtradas.csv", 
+                    col_types = cols(
+                        NOME = col_character(),
+                        CPF = col_character(),
+                        MATRICULA = col_character(),
+                        DESCRICAO_CARGO = col_character(),
+                        UORG_LOTACAO = col_character(),
+                        ORG_EXERCICIO = col_character(),
+                        TIPO_VINCULO = col_integer(),
+                        SITUACAO_VINCULO = col_character(),
+                        JORNADA_DE_TRABALHO = col_character(),
+                        DATA_INGRESSO_CARGOFUNCAO = col_character(),
+                        UORG_EXERCICIO = col_character(),
+                        DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO = col_character(),
+                        INGRESSO_SERVICOPUBLICO = col_date(format = "")
+                    )
+)
 
 ufcg_totais = ufcg_uas %>% 
     filter(grepl("MAGIST", DESCRICAO_CARGO)) %>% 
@@ -72,11 +80,17 @@ ufcg_uas_idades = ufcg_uas_recode %>%
               idade_mediana = median(idade_no_cargo, na.rm = T), 
               idade_75perc = quantile(idade_no_cargo, p = .75, na.rm = T))
 
-ufcg_uas_sumario = ufcg_uas_counts %>% 
-    spread(key = DESCRICAO_CARGO, value = n, fill = 0) %>% 
-    left_join(ufcg_uas_idades)
-
-write_csv(ufcg_uas_sumario, "ufcg-201704-sumario-UAs-wide.csv")
+ufcg_uas_sumario = read_csv("ufcg-201704-sumario-UAs-wide.csv", 
+                            col_types = cols(
+                                UORG_LOTACAO = col_character(),
+                                Outro = col_double(),
+                                `Professor 20h` = col_double(),
+                                `Professor 40h ou DE` = col_double(),
+                                idade_25perc = col_double(),
+                                idade_mediana = col_double(),
+                                idade_75perc = col_double()
+                            )
+)
 ```
 
 Os dados vêm do portal da transparência do governo federal, e são referentes a **abril de 2017**.  Filtrei funcionários da UFCG, e abaixo apenas as unidades da organização de lotação que tem ao menos um professor.
@@ -105,7 +119,7 @@ ufcg_uas_counts %>%
     ungroup() %>% 
     spread(key = DESCRICAO_CARGO, value = n, fill = 0) %>% 
     mutate(profs = `Professor 20h` + `Professor 40h ou DE`, 
-           razao = Outro / profs, 
+           razao =  `Servidor Tec/administrativo` / (`Servidor Tec/administrativo` + profs), 
            UORG_LOTACAO = ifelse(grepl("Computacao", UORG_LOTACAO), toupper(UORG_LOTACAO), as.character(UORG_LOTACAO))) %>% 
     filter(profs > 10) %>% 
     ggplot(aes(x = reorder(UORG_LOTACAO, razao), y = razao)) + 
