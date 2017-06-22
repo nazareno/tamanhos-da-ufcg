@@ -1,0 +1,127 @@
+---
+title: "Os tamanhos das UAs na UFCG"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE}
+suppressWarnings(library(tidyverse))
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(silgelib)
+theme_set(theme_roboto())
+
+library(DT)
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+cadastros = read_tsv("dados/20170430_Cadastro.csv")
+
+ufcg = cadastros %>% 
+    filter(grepl("CAMPINA GRANDE", ORG_LOTACAO), grepl("UNIVERSIDADE", ORG_LOTACAO))
+write_csv(ufcg, "ufcg-201704-tudo.csv")
+
+ufcg_uas = ufcg %>% 
+    filter(grepl("UNIDADE ACA", UORG_EXERCICIO), 
+           DESCRICAO_CARGO != "", 
+           SITUACAO_VINCULO != "APOSENTADO", 
+           !is.na(UORG_LOTACAO)) %>% 
+    select(-Id_SERVIDOR_PORTAL, 
+           -(CLASSE_CARGO:COD_UORG_LOTACAO), 
+           -(COD_ORG_LOTACAO:COD_ORG_EXERCICIO), 
+           -(DATA_INICIO_AFASTAMENTO:REGIME_JURIDICO), 
+           -(DATA_NOMEACAO_CARGOFUNCAO:UF_EXERCICIO), 
+           -COD_ORGSUP_EXERCICIO, 
+           -ORGSUP_EXERCICIO, 
+           UORG_EXERCICIO, 
+           DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO) %>% 
+    mutate(UORG_LOTACAO = tools::toTitleCase(tolower(UORG_LOTACAO)), 
+           DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO = ifelse(grepl("informada", DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO), NA, DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO),
+           INGRESSO_SERVICOPUBLICO = dmy(DATA_DIPLOMA_INGRESSO_SERVICOPUBLICO))
+
+write_csv(ufcg_uas, "ufcg-201704-unidades-academicas-filtradas.csv")
+
+ufcg_totais = ufcg_uas %>% 
+    filter(grepl("MAGIST", DESCRICAO_CARGO)) %>% 
+    group_by(UORG_LOTACAO) %>% 
+    count() 
+
+ufcg_uas_recode = ufcg_uas %>%
+    filter(UORG_LOTACAO %in% ufcg_totais$UORG_LOTACAO) %>% 
+    mutate(UORG_LOTACAO = factor(UORG_LOTACAO, 
+                                 levels = ufcg_totais$UORG_LOTACAO[order(ufcg_totais$n)], 
+                                 ordered = T), 
+           DESCRICAO_CARGO = ifelse(grepl("MAGIST", DESCRICAO_CARGO), 
+                                    ifelse(JORNADA_DE_TRABALHO == "20 HORAS SEMANAIS", 
+                                           "Professor 20h", 
+                                           "Professor 40h ou DE"), 
+                                    "Servidor Tec/administrativo")) 
+
+ufcg_uas_counts = ufcg_uas_recode %>% 
+    group_by(UORG_LOTACAO, DESCRICAO_CARGO) %>% 
+    count() %>% 
+    ungroup()
+```
+
+```{r, echo=FALSE}
+ufcg_uas_idades = ufcg_uas_recode %>%
+    mutate(idade_no_cargo = difftime(now(), INGRESSO_SERVICOPUBLICO, unit = "days")/365) %>% 
+    group_by(UORG_LOTACAO) %>% 
+    summarise(idade_25perc = quantile(idade_no_cargo, p = .25, na.rm = T),
+              idade_mediana = median(idade_no_cargo, na.rm = T), 
+              idade_75perc = quantile(idade_no_cargo, p = .75, na.rm = T))
+
+ufcg_uas_sumario = ufcg_uas_counts %>% 
+    spread(key = DESCRICAO_CARGO, value = n, fill = 0) %>% 
+    left_join(ufcg_uas_idades)
+
+write_csv(ufcg_uas_sumario, "ufcg-201704-sumario-UAs-wide.csv")
+```
+
+Os dados vêm do portal da transparência do governo federal, e são referentes a **abril de 2017**.  Filtrei funcionários da UFCG, e abaixo apenas as unidades da organização de lotação que tem ao menos um professor.
+
+```{r, echo=FALSE, fig.height= 8, fig.width= 8}
+ufcg_uas_counts %>% 
+    ggplot(aes(x = UORG_LOTACAO, y = n, fill = DESCRICAO_CARGO)) + 
+    geom_col() +
+    labs(y = "Quantidade", x = "") + 
+    scale_fill_viridis(discrete = TRUE, direction = -1) + 
+    coord_flip()
+#ggsave("lotacoes-ufcg.png", height = 7, width = 8)
+```
+
+Quem tem a maior disparidade professor / funcionário?
+
+```{r, echo=FALSE}
+# ufcg_uas_counts %>% 
+#     ungroup() %>%
+#     spread(key = DESCRICAO_CARGO, value = n, fill = 0) %>% 
+#     mutate(profs = `Professor 20h` + `Professor 40h ou DE`, 
+#            razao = Outro / profs) %>% 
+#     summarise(media = mean(razao))
+
+ufcg_uas_counts %>% 
+    ungroup() %>% 
+    spread(key = DESCRICAO_CARGO, value = n, fill = 0) %>% 
+    mutate(profs = `Professor 20h` + `Professor 40h ou DE`, 
+           razao = Outro / profs, 
+           UORG_LOTACAO = ifelse(grepl("Computacao", UORG_LOTACAO), toupper(UORG_LOTACAO), as.character(UORG_LOTACAO))) %>% 
+    filter(profs > 10) %>% 
+    ggplot(aes(x = reorder(UORG_LOTACAO, razao), y = razao)) + 
+    geom_point() + 
+    labs(x = "", y = "Razão funcionários/professores") + 
+    coord_flip()
+    
+```
+
+
+Nem todo mundo está nos dados, mas não consegui detectar um padrão. Eis os que estão: 
+
+```{r, echo=FALSE}
+ufcg_uas %>% 
+    select(-CPF, -ORG_EXERCICIO, -TIPO_VINCULO, -SITUACAO_VINCULO, -UORG_EXERCICIO) %>% 
+    datatable(options = list(pageLength = 30))
+```
+
+
